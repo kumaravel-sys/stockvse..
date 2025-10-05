@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mega Stock Trainer</title>
+<style>
+  body { font-family: Arial, sans-serif; margin:0; padding:0; background-color:#f5f5f5; }
+  .hidden { display:none; }
+  .container { max-width:1200px; margin:0 auto; padding:20px; }
+  input, button, select { padding:8px; margin:5px; }
+  #themeToggle { float:right; cursor:pointer; }
+  table { border-collapse: collapse; width:100%; }
+  th, td { border:1px solid #ccc; padding:8px; text-align:left; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Mega Stock Trainer</h1>
+  <span id="themeToggle">Toggle Theme</span>
+
+  <!-- Common Password Page -->
+  <div id="commonPasswordPage">
+    <h2>Enter Common Password</h2>
+    <input type="password" id="commonPasswordInput" placeholder="Common Password">
+    <button id="commonPasswordSubmit">Submit</button>
+    <p id="commonPasswordError" style="color:red"></p>
+  </div>
+
+  <!-- Login Page -->
+  <div id="loginPage" class="hidden">
+    <h2>Login</h2>
+    <input type="email" id="loginEmail" placeholder="Email">
+    <input type="password" id="loginPassword" placeholder="Password">
+    <button id="loginSubmit">Login</button>
+    <p id="loginError" style="color:red"></p>
+  </div>
+
+  <!-- Main App Page -->
+  <div id="appPage" class="hidden">
+    <h2>Welcome <span id="usernameDisplay"></span></h2>
+    <h3>Balance: ₹<span id="balanceDisplay"></span></h3>
+
+    <!-- Search Stock -->
+    <input type="text" id="stockSearch" placeholder="Search NSE/BSE stock">
+    <button id="searchBtn">Search</button>
+
+    <!-- Stock Info -->
+    <div id="stockInfo"></div>
+
+    <!-- Buy/Sell -->
+    <div id="tradeSection" class="hidden">
+      <input type="number" id="tradeQuantity" placeholder="Quantity">
+      <button id="buyBtn">Buy</button>
+      <button id="sellBtn">Sell</button>
+    </div>
+
+    <!-- Portfolio -->
+    <h3>Portfolio</h3>
+    <table id="portfolioTable">
+      <thead><tr><th>Symbol</th><th>Quantity</th><th>Current Price</th><th>Value</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <!-- Transactions -->
+    <h3>Transactions</h3>
+    <table id="transactionTable">
+      <thead><tr><th>Symbol</th><th>Quantity</th><th>Price</th><th>Type</th><th>Date</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <!-- Admin Section -->
+    <div id="adminSection" class="hidden">
+      <h2>Admin Panel</h2>
+      <h3>Leaderboard</h3>
+      <table id="leaderboardTable">
+        <thead><tr><th>User</th><th>Profit</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3>All Transactions</h3>
+      <table id="allTransactionsTable">
+        <thead><tr><th>User</th><th>Symbol</th><th>Quantity</th><th>Price</th><th>Type</th><th>Date</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TradingView Widget -->
+<div id="tradingviewWidget" style="height:500px; width:100%;"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-firestore.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyBkFn49XWAAvads1ZSmlulmhtmfbRJi324",
+  authDomain: "stockweb-88ab4.firebaseapp.com",
+  projectId: "stockweb-88ab4",
+  storageBucket: "stockweb-88ab4.firebasestorage.app",
+  messagingSenderId: "1043811061157",
+  appId: "1:1043811061157:web:34460935512ec00d3fac4c"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// Common Password Page
+const commonPassword = "vse2k25";
+const adminEmail = "admin6@vse.com";
+const adminPassword = "adminvse2k25";
+
+const commonPasswordPage = document.getElementById('commonPasswordPage');
+const loginPage = document.getElementById('loginPage');
+const appPage = document.getElementById('appPage');
+const adminSection = document.getElementById('adminSection');
+
+let currentUser = null;
+
+document.getElementById('commonPasswordSubmit').onclick = () => {
+  const val = document.getElementById('commonPasswordInput').value;
+  if(val === commonPassword){
+    commonPasswordPage.classList.add('hidden');
+    loginPage.classList.remove('hidden');
+  } else {
+    document.getElementById('commonPasswordError').innerText = 'Wrong Common Password';
+  }
+};
+
+// Login
+document.getElementById('loginSubmit').onclick = async () => {
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPassword').value;
+
+  if(email === adminEmail && password === adminPassword){
+    currentUser = {email:adminEmail, isAdmin:true, balance:100000};
+    loginPage.classList.add('hidden');
+    appPage.classList.remove('hidden');
+    adminSection.classList.remove('hidden');
+    document.getElementById('usernameDisplay').innerText = 'Admin';
+    loadAdminData();
+    return;
+  }
+
+  // Check Firestore for user
+  const userRef = doc(db, 'users', email);
+  const userSnap = await getDoc(userRef);
+  if(userSnap.exists()){
+    const data = userSnap.data();
+    if(data.password === password){
+      currentUser = {...data, email};
+      loginPage.classList.add('hidden');
+      appPage.classList.remove('hidden');
+      document.getElementById('usernameDisplay').innerText = email;
+      loadUserData();
+    } else {
+      document.getElementById('loginError').innerText = 'Invalid Password';
+    }
+  } else {
+    // New user
+    await setDoc(userRef, {password, balance:100000, portfolio:{}, transactions:[]});
+    currentUser = {email, password, balance:100000, portfolio:{}, transactions:[]};
+    loginPage.classList.add('hidden');
+    appPage.classList.remove('hidden');
+    document.getElementById('usernameDisplay').innerText = email;
+  }
+};
+
+// Theme Toggle
+document.getElementById('themeToggle').onclick = () => {
+  document.body.style.backgroundColor = document.body.style.backgroundColor === '#222' ? '#f5f5f5' : '#222';
+  document.body.style.color = document.body.style.color === '#fff' ? '#000' : '#fff';
+};
+
+// Search and load stock
+const twelveAPIKey = 'c933f15065e54a7b9d8908b084d72de1';
+const stockInfoDiv = document.getElementById('stockInfo');
+const tradeSection = document.getElementById('tradeSection');
+let currentStock = null;
+
+document.getElementById('searchBtn').onclick = async () => {
+  const symbol = document.getElementById('stockSearch').value.toUpperCase();
+  if(!symbol) return;
+  const url = `https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${twelveAPIKey}`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if(data.status === 'error'){ stockInfoDiv.innerText = 'Invalid symbol'; return; }
+
+  currentStock = {symbol: symbol, price: parseFloat(data.close)};
+  stockInfoDiv.innerHTML = `<p>${symbol} - Price: ₹${data.close}</p>`;
+  tradeSection.classList.remove('hidden');
+  updatePortfolioTable();
+  updateTransactionTable();
+  loadTradingViewWidget(symbol);
+};
+
+// Buy/Sell
+document.getElementById('buyBtn').onclick = async () => {
+  const qty = parseInt(document.getElementById('tradeQuantity').value);
+  if(!qty || !currentStock) return;
+  if(currentUser.balance < currentStock.price*qty){ alert('Insufficient balance'); return; }
+  currentUser.balance -= currentStock.price*qty;
+  currentUser.portfolio[currentStock.symbol] = (currentUser.portfolio[currentStock.symbol]||0)+qty;
+  currentUser.transactions.push({symbol:currentStock.symbol, quantity:qty, price:currentStock.price, type:'BUY', date:new Date().toISOString()});
+  await updateDoc(doc(db, 'users', currentUser.email), {balance:currentUser.balance, portfolio:currentUser.portfolio, transactions:currentUser.transactions});
+  updatePortfolioTable();
+  updateTransactionTable();
+  document.getElementById('balanceDisplay').innerText = currentUser.balance.toFixed(2);
+};
+
+document.getElementById('sellBtn').onclick = async () => {
+  const qty = parseInt(document.getElementById('tradeQuantity').value);
+  if(!qty || !currentStock) return;
+  const owned = currentUser.portfolio[currentStock.symbol]||0;
+  if(owned < qty){ alert('Not enough shares'); return; }
+  currentUser.balance += currentStock.price*qty;
+  currentUser.portfolio[currentStock.symbol] -= qty;
+  currentUser.transactions.push({symbol:currentStock.symbol, quantity:qty, price:currentStock.price, type:'SELL', date:new Date().toISOString()});
+  await updateDoc(doc(db, 'users', currentUser.email), {balance:currentUser.balance, portfolio:currentUser.portfolio, transactions:currentUser.transactions});
+  updatePortfolioTable();
+  updateTransactionTable();
+  document.getElementById('balanceDisplay').innerText = currentUser.balance.toFixed(2);
+};
+
+function updatePortfolioTable(){
+  const tbody = document.querySelector('#portfolioTable tbody');
+  tbody.innerHTML = '';
+  for(const sym in currentUser.portfolio){
+    const qty = currentUser.portfolio[sym];
+    const val = (currentStock && currentStock.symbol===sym) ? currentStock.price*qty : qty*0;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${sym}</td><td>${qty}</td><td>${currentStock && currentStock.symbol===sym ? currentStock.price.toFixed(2) : '-'}</td><td>${val.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function updateTransactionTable(){
+  const tbody = document.querySelector('#transactionTable tbody');
+  tbody.innerHTML = '';
+  currentUser.transactions.forEach(t => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${t.symbol}</td><td>${t.quantity}</td><td>${t.price.toFixed(2)}</td><td>${t.type}</td><td>${t.date}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+// Admin
+async function loadAdminData(){
+  const usersSnap = await getDocs(collection(db, 'users'));
+  const leaderboardTbody = document.querySelector('#leaderboardTable tbody');
+  const allTransTbody = document.querySelector('#allTransactionsTable tbody');
+  leaderboardTbody.innerHTML = '';
+  allTransTbody.innerHTML = '';
+
+  let leaderboard = [];
+  usersSnap.forEach(docSnap => {
+    const data = docSnap.data();
+    let portfolioVal = 0;
+    for(const sym in data.portfolio){
+      portfolioVal += (data.portfolio[sym]*0); // Can't fetch live price here
+    }
+    leaderboard.push({email: docSnap.id, profit: portfolioVal + data.balance - 100000});
+
+    data.transactions.forEach(t => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${docSnap.id}</td><td>${t.symbol}</td><td>${t.quantity}</td><td>${t.price.toFixed(2)}</td><td>${t.type}</td><td>${t.date}</td>`;
+      allTransTbody.appendChild(tr);
+    });
+  });
+
+  leaderboard.sort((a,b)=>b.profit-a.profit);
+  leaderboard.forEach(u => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${u.email}</td><td>${u.profit.toFixed(2)}</td>`;
+    leaderboardTbody.appendChild(tr);
+  });
+}
+
+function loadTradingViewWidget(symbol){
+  document.getElementById('tradingviewWidget').innerHTML = '';
+  const script = document.createElement('script');
+  script.src = 'https://s3.tradingview.com/tv.js';
+  script.onload = () => {
+    new TradingView.widget({
+      width: '100%',
+      height: 500,
+      symbol: 'NSE:'+symbol,
+      interval: '15',
+      timezone: 'Asia/Kolkata',
+      theme: 'light',
+      style: '1',
+      locale: 'en',
+      toolbar_bg: '#f1f3f6',
+      enable_publishing: false,
+      hide_top_toolbar: false,
+      save_image: false
+    });
+  };
+  document.getElementById('tradingviewWidget').appendChild(script);
+}
+</script>
+</body>
+</html>
+
